@@ -1,0 +1,363 @@
+---
+title: 'Projet STA211 : Roche, Ait Sidi Hammou'
+date: "5 mai 2021"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+authors: Achraf Ait Sidi Hammou, Jérôme Roche
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Avant de commencer 
+
+
+```{r}
+setwd("~/Documents/ENSTA_2021/STA211/Projet")
+library(tidyverse) # Ensemble de packages pour la manip de donnes
+library(coda)
+library(ggmcmc)
+library(latex2exp)
+rm(list=ls()) # Nettoyage de l'environnement de travail
+set.seed(123) # Assure la reproductibilite des resultats
+```
+
+### Sujet 1
+
+# Pour commencer...
+
+### Question 1
+On cherche à calculer la log-vraisemblance du modèle probabiliste $\cal{M}$.
+
+---------------
+
+
+Nous sommes dans le cas de loi discrète ainsi:
+$$
+\cal{L} = \binom{N}{C_1}\pi^{C_1}(1-\pi)^{N-C_1}\binom{N-C_1}{C_{20}}\pi^{C_{20}}(1-\pi)^{N-C_1-C_{20}}\binom{C_1}{C_{21}}\pi^{C_{21}}(1-\pi)^{C_1-C_{21}}
+$$
+C'est pourquoi la log-vraisemblance du modèle $\cal{M}$ vaut:
+
+$$
+log([C_1 = c_1, C_{20} = c_{20}, C_{21} = c_{21} | \pi, N]) = log(C_N^{c_1} C_{N-c_1}^{c_{20}} C_{c_1}^{c_{21}}) + ( c_1 + c_2 ) log(\pi) + (2N - c_1 - c_2) log(1-\pi)
+$$
+
+### Question 2
+Pour tout $u \in [0, 1]$, ecrire l’expression de l’inverse generalisee de la fonction de repartition de la variable aleatoire C1 de loi Binomial(N,$\pi$). 
+
+---------------
+
+L'inverse généralisé n'est pas aisé à écrire explicitement mais on obtient:
+$$
+f^{-}(u) = 
+\begin{cases} 
+0 & \text{si $u \leq (1-\pi)^N$} \\ 
+1 & \text{si $(1-\pi)^N<u \leq \binom{N}{1}\pi(1-\pi)^{N-1}$}\\
+\text{...}\\
+N & \text{si $ u > \sum_{k=0}^{N-2}\binom{N}{k}\pi^k(1-\pi)^{N-k}$} 
+\end{cases} 
+$$
+
+---------------
+
+En deduire une fonction R qui genere par inversion generique n tirages independants de la variable aleatoire C1.
+
+---------------
+
+```{r}
+my_rbinom <- function(n ,m, pi ){
+  p <- pbinom(0:m, m, pi)
+  U <- runif(n)
+  return( findInterval( U, p ) ) 
+}
+
+```
+
+---------------
+
+Utiliser cette fonction pour tirer un echantillon de n = 10000 realisations de loi Binomial(125, 0.15). Comparer les frequences obtenues avec les frequences theoriques.
+
+---------------
+
+```{r}
+n <- 1000000
+m <- 125
+pi <- 0.15
+ech <- my_rbinom(n, m, pi)
+paste('Esperance empirique : ', mean(ech))
+paste('Esperance théorique :' ,125*0.15)
+hist(ech, breaks = 30, xlim = c(5,35))
+lines(x = 5:35, y = (n*dbinom(0:m, m, pi))[6:36] ) #Décalage de 1 dans les indices
+```
+
+On retrouve des fréquences empiriques qui suivent les fréquences théoriques. Cela confirme que la fonction implémentée par inversion générique est efficace pour simuler des lois binomiales.
+
+### Question 3
+Utiliser la fonction R précédente pour définir une seconde fonction R permettant de générer des réalisations possibles de capture-marquage-recapture (i.e. des variables aléatoires $C_1$, $C_{20}$ et $C_{21}$) selon le modèle $\cal{M}$.
+
+---------------
+
+```{r}
+capt_marq_recapt <- function(N, pi){
+  C1 = my_rbinom(1, N, pi)
+  C20 = my_rbinom(1, N-C1, pi)
+  C21 = my_rbinom(1, C1, pi)
+  return(list(C1, C20, C21))
+}
+```
+
+# Supposons N connu
+
+### Question 4
+Calculer l’estimateur du maximum de vraisemblance $\hat{\pi}_{MLE}$ du paramètre $\pi$. Sachant les données observées, en déduire une estimation de $\pi$.
+
+---------------
+
+On dérive la log-vraisemblance trouvée à la question 1:
+$$
+\frac{\partial \cal{L}}{\partial \pi} = \frac{c_1 + c_2}{\pi} + \frac{c_1 + c_2 - 2N}{1-\pi}
+$$
+Cette dérivée patielle est nulle en 
+$$ \hat{\pi}_{MLE} = \frac{c_1 + c_2}{2N} $$
+.
+
+On vérifie que cela correspond bien à un maximum:
+$$
+\frac{\partial^2 \cal{L}}{\partial \pi^2}(\hat{\pi}_{MLE}) = - \frac{c_1 + c_2}{\pi^2} - \frac{2N -c_1 -c_2}{(1-\pi)^2} < 0
+$$
+
+```{r}
+paste('Estimation du paramètre', (125+134+21)/(2*950))
+```
+
+### Question 5
+
+Assignons une loi a priori beta($\alpha$,$\beta$) sur le paramètre $\pi$. 
+On a donc que la loi à posteriori est proportionnelle à:
+$$ 
+\cal_{L}(p) p^{\alpha-1}(1-p)^{\beta -1} 
+$$
+Avec $\cal_{L}$ obtenue à la question 1. On obtient donc que la loi à posteriori est proportionnelle à:
+$$
+p^{c_1+c_2+\alpha - 1}(1-p)^{2N -c_1-c_2 +\beta - 1}
+$$
+Ainsi la loi a posteriori de $\pi$ sachant N notée $[\pi|N, C_1, C_{20}, C_{21}]$ est alors une loi beta de paramètres $C_1 + C_2 + \alpha$ et $2N − C_1 − C_2 + \beta$.
+
+Sous ces conditions l'espérence de cette loi Beta est:
+$$
+\frac{c_1 + c_2 + \alpha}{2N + \alpha + \beta}
+$$
+En faisant tendre $\alpha$ et $\beta$ vers 0 on retrouve l'estimateur du maximum de vraisemblance. Ou plutôt avec N suffissament grand, $c_1$ et $c_2$ le sont aussi ce qui permet de négliger $\alpha$ et $\beta$. On s'attend donc à une estimateur proche de celui du maximum de vraisemblance en espérence. A voir si la variance est suffisament faible.
+
+QUESTCEUECAVEUTDIRE ?
+
+### Question 6
+
+Posons $\alpha=1$ et $\beta=3$. Représenter sur un même graphe les densités a priori et a posteriori de $\pi$ ainsi que l’estimateur du maximum de vraisemblance de $\hat{\pi}_{MLE}$. Commenter les résultats.
+
+---------------
+
+```{r}
+x <- seq(0, 1, length.out = 1000)
+plot(x, dbeta(x, 1, 3), type = 'l', col = 2)
+lines(x, dbeta(x, 281, 1623), type = 'l', col = 4)
+abline(v = (125+134+21)/(2*950), col = 1)
+legend("topright", legend=c("a priori", "a posteriori", TeX("$\\hat{\\pi}_{MLE}$")), bty='n', pch=rep('_',3), col=c(2,4,1))
+```
+
+La loi a posteriori (en bleu) semble bien faire la synthèse entre l’information fourni par la loi a priori (en rouge) et celle fournie par les données (en noir).
+
+# Supposons N et $\pi$ connu
+
+## Approche fréquentiste
+
+Pour évaluer le nombre d’individus N dans une population d’intérêt à partir de deux expériences de pêche de type capture-marquage-recapture, un estimateur fréquentiste naif est l’estimateur de "Petersen" défini par :
+$$
+\hat{N}=\frac{C_1C_2}{C_{21}}
+$$
+
+### Question 7
+
+Appliquer cet estimateur au jeu de données réelles observées afin d’estimer le nombre de "poissons" N dans "le lac".
+
+---------------
+
+```{r}
+paste('Estimation de N:', 125*(134+21)/21)
+```
+
+### Question 8
+
+Supposons ici que les "vraies" valeurs des paramètres soient $N_{true}$ = 923 et $\pi_{true}$ = 0.15. Simuler 100 jeux de données à l’aide de la fonction implémentée à la question 3, en déduire 100 estimations du paramètre N puis estimer empiriquement par Monte-Carlo le biais relatif de $\hat_N$. Recommencer en faisant varier $N_{true}$ de 100 à 1000 par pas de 10 puis représenter l’évolution du biais relatif en fonction de $N_{true}$.
+
+---------------
+
+```{r}
+N <- seq(100, 1000, 10)
+biais <- c()
+for(j in N){
+  hat_Ns <- c()
+  for(i in 1:100){
+    cmr <- capt_marq_recapt(j, 0.15)
+    while(cmr[[3]] == 0){
+      cmr <- capt_marq_recapt(j, 0.15)
+    }
+    estimation <- cmr[[1]]*(cmr[[2]]+cmr[[3]])/cmr[[3]]
+    hat_Ns <- c(hat_Ns, estimation)
+  }
+  biais <- c(biais, (mean(hat_Ns) - j)/j)
+}
+
+plot(N, biais, ylab = 'biais relatif', xlab = 'Ntrue')
+```
+
+Les résultats nous montrent que le biais relatif tant vers 0 c'est à dire que l'on effectue une erreur relative très fine. Néanmoins il persiste un biais qui n'a pas l'air de tendre vers 0.
+
+Nous allons donc essayer une approche bayésienne.
+
+
+
+## Approche bayésienne
+
+Considérons une loi à priori beta($\alpha = 1$, $\beta = 3$) pour $\pi$ et une loi uniforme sur l’ensemble fini d’entiers ${1, . . . , 2000}$ pour N .
+
+### Question 9
+
+La question 5. a montré que la loi conditionnelle complète de $\pi$ est : $\pi|N,y ∼ Beta(C_1 + C_2 + \alpha,2N − C1 − C2 + \beta)$. Donner l’expression de la loi conditionnelle complète de N (à une constante multiplicative près). Reconnaissez-vous une forme analytique connue ?
+
+On reprend la méthodologie de la question 5. Désormais, la densité de la loi à priori est une constante puisque c'est une loi uniforme sur un ensemble discret. Ainsi:
+
+$$
+[N | \pi, y] = K\pi^{c_1 + c_2}(1-\pi)^{2N - c_1 - c_2} = K'exp(2Nlog(1-\pi))
+$$
+
+Ainsi:
+$$
+N|\pi, y \sim  \epsilon(-2log(1-\pi))
+$$
+
+---------------
+
+### Question 10
+
+Implémenter un algorithme MCMC sous la forme d’une fonction R nommée MCMC qui va permettre d’échantillonner dans la loi jointe a posteriori du couple (N, $\pi$) sachant les données y = $(c_1, c_{20}, c_{21})$ en mettant à jour :
+
+* le paramètre $\pi$ avec un échantillonneur de Gibbs
+* le paramètre N avec un échantillonneur de Metropolis-Hastings (MH), en utilisant comme loi de proposition une loi uniforme (discrète) sur $[{N_{curr} − k, N_{curr} + k}]$ où $N_{curr}$ désigne la valeur courante du paramètre N à une itération donnée et k est un paramètre de saut.
+
+
+```{r}
+alpha <- 1
+beta <- 3
+MCMC <- function(c1, c20, c21, k, T, N = 800, p = 0.5){
+  # Condition initiale
+  taux <- 0
+  # Boucle sur les itérations
+  for(i in 1:(T-1)){
+    # Metropolis-Hastings
+    Ninter <- N[i]
+    Ncandidat <- (runif(1, max(Ninter-k, max(c1, c20 + c21)), Ninter+k+1)) # simulation sous une unif(N-k, N+k) discrète
+    r <- (1-p)^(2*(Ncandidat-Ninter)) # calcul du ratio de MH
+    U <- runif(1)
+    if(U < min(1, r)){
+      N <- c(N, Ncandidat)
+      taux <- taux +1
+    }
+    else{
+      N <- c(N, Ninter)
+    }
+    # Gibbs
+    p <- c(p, rbeta(1, c1 + c20 + c21 + alpha, 2*N[i+1]-c1-c21-c20+beta))
+  }
+  # return(list(N = N, pi = p, taux = taux/T))
+  return(list(mcmc = mcmc(matrix(c(p,N),nrow=T,ncol=2,byrow=FALSE)), taux = taux /T))
+}
+test=MCMC(125, 134, 21, 2, 10000, 1000, 0.15)
+test$mcmc
+plot(test$mcmc)
+```
+
+
+
+---------------
+
+### Question 11
+
+**Choix du saut k** : Utiliser la fonction MCMC précédemment implémentée pour calculer puis tracer l’évolution du taux d’acceptation associé à la mise à jour de N en fonction de différentes valeurs du paramètre k (par exemple, allant de 1 à 301 par pas de 10). Pour chaque valeur de k, on pourra faire tourner l’algorithme MCMC pendant 10 000 itérations et qu’avec une seule chaîne de Markov pour cette étape de calibration. Quelle valeur de k vous semble la meilleure (rappel : viser un taux d’acceptation d’environ 40%) ? Vous conserverez cette valeur pour la suite.
+
+```{r}
+K <- seq(1, 301,10)
+c1 <- 125
+c20 <- 134
+c21 <- 21
+taux <- c()
+for(k in K){
+  paste('cool')
+  res <- MCMC(c1, c20, c21, k, 10000)
+  taux <- c(taux, res['taux'])
+}
+
+plot(K, taux, xlab = 'Paramètre k', ylab = 'taux d\'acceptation')
+```
+
+```{r}
+K <- seq(1, 10)
+c1 <- 125
+c20 <- 134
+c21 <- 21
+taux <- c()
+for(k in K){
+  paste('cool')
+  res <- MCMC(c1, c20, c21, k, 10000)
+  taux <- c(taux, res['taux'])
+}
+
+plot(K, taux, xlab = 'Paramètre k', ylab = 'taux d\'acceptation')
+```
+
+---------------
+
+### Question 12
+
+Lancer à présent 3 chaînes de Markov à partir de positions initiales différentes en fixant k à la valeur ṕécedemment choisie afin de générer 3 échantillons $((N(1),\pi(1),...,(N(G),\pi(G)))$ de taille G = 20000. Faites un examen visuel des chaînes de Markov obtenues et calculer la statistique de Gelman-Rubin. Identifiez-vous un problème de convergence de l’algorithme MCMC implémenté vers sa loi stationnaire ? Si oui, comment proposez-vous d’y remédier ? Combien d’itérations X vous semblent à minima nécessaires pour espérer avoir atteint l’état stationnaire ?
+
+```{r}
+N0 <- 800
+N1 <- 900
+N2 <- 1200
+p0 <- 0.5
+p1 <- 0.2
+p2 <- 0.15
+res0 <- MCMC(125, 134, 21, 2, 20000, N0, p0)
+res1 <- MCMC(125, 134, 21, 2, 20000, N1, p1)
+res2 <- MCMC(125, 134, 21, 2, 20000, N2, p2)
+plot(res0$mcmc)
+plot(res1$mcmc)
+plot(res2$mcmc)
+```
+
+
+---------------
+
+### Question 13
+
+Analyser les autocorrélations intra-chaînes. Qu’en pensez-vous ?
+
+---------------
+
+### Question 14
+
+Supprimer les X premières itérations correspondant à votre temps-de- chauffe "estimé" de l’algorithme afin de constituer votre échantillon à posteriori. Calculer la taille d’échantillon effective (ESS) de l’échantillon à posteriori constitué. Qu’en pensez-vous ? Si l’ESS vous semble trop petit, refaites tourner l’algorithme en augmentant le nombre d’itérations G jusqu’à obtenir un ESS "satisfaisant" pour bien estimer N et $\piπ$.
+
+---------------
+
+### Question 15
+
+Donner les statistiques a posteriori et représenter les lois a posteriori approchées pour les paramètres inconnus de votre modèle. Comparer les résultats obtenus à ceux obtenus avec une approche fréquentiste.
+
+---------------
+
