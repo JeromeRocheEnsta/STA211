@@ -139,7 +139,7 @@ paste('Estimation du paramètre', (125+134+21)/(2*950))
 Assignons une loi a priori beta($\alpha$,$\beta$) sur le paramètre $\pi$. 
 On a donc que la loi à posteriori est proportionnelle à:
 $$ 
-\cal_{L}(p) p^{\alpha-1}(1-p)^{\beta -1} 
+\cal_{L}(p) = p^{\alpha-1}(1-p)^{\beta -1} 
 $$
 Avec $\cal_{L}$ obtenue à la question 1. On obtient donc que la loi à posteriori est proportionnelle à:
 $$
@@ -225,6 +225,8 @@ Nous allons donc essayer une approche bayésienne.
 
 Considérons une loi à priori beta($\alpha = 1$, $\beta = 3$) pour $\pi$ et une loi uniforme sur l’ensemble fini d’entiers ${1, . . . , 2000}$ pour N .
 
+La loi a priori pour N nous paraît improbable. En effet, si l'on prend N plus petit que C1 + C20 c'est impossible. On chosit donc comme loi à priori une loi uniforme sur l'ensemble fini d'entiers ${C1 + C20, . . ., 2000}$ pour N.
+
 ### Question 9
 
 La question 5. a montré que la loi conditionnelle complète de $\pi$ est : $\pi|N,y ∼ Beta(C_1 + C_2 + \alpha,2N − C1 − C2 + \beta)$. Donner l’expression de la loi conditionnelle complète de N (à une constante multiplicative près). Reconnaissez-vous une forme analytique connue ?
@@ -232,13 +234,15 @@ La question 5. a montré que la loi conditionnelle complète de $\pi$ est : $\pi
 On reprend la méthodologie de la question 5. Désormais, la densité de la loi à priori est une constante puisque c'est une loi uniforme sur un ensemble discret. Ainsi:
 
 $$
-[N | \pi, y] = K\pi^{c_1 + c_2}(1-\pi)^{2N - c_1 - c_2} = K'exp(2Nlog(1-\pi))
+[N | \pi, y] = K\pi^{c_1 + c_2}(1-\pi)^{2N - c_1 - c_2}1_{[1,2000]}(N) = K'exp(2Nlog(1-\pi))1_{[1,2000]}(N)
 $$
 
-Ainsi:
+On pourrait reconnaitre une densité de type loi exponentielle.
 $$
 N|\pi, y \sim  \epsilon(-2log(1-\pi))
 $$
+
+Néanmoins, il faut faire attention car ici on est sur une loi discrète. On ne reconnait donc pas de forme analytique connue.
 
 ---------------
 
@@ -249,10 +253,24 @@ Implémenter un algorithme MCMC sous la forme d’une fonction R nommée MCMC qu
 * le paramètre $\pi$ avec un échantillonneur de Gibbs
 * le paramètre N avec un échantillonneur de Metropolis-Hastings (MH), en utilisant comme loi de proposition une loi uniforme (discrète) sur $[{N_{curr} − k, N_{curr} + k}]$ où $N_{curr}$ désigne la valeur courante du paramètre N à une itération donnée et k est un paramètre de saut.
 
+Effectuons le calcul de r de l'algorithme de Métropolis-Hastings:
+$$
+r = \frac{[y|N^c][N^c]Q_t(N^c | N^{(t-1)})}{[y|N^{(t-1)}][N^{(t-1)}]Q_t(N^{(t-1)} | N^{c})}
+$$
+or $[N^c]=[N^{(t-1)}]$ et $Q_t(N^c | N^{(t-1)})=Q_t(N^{(t-1)} | N^{c})$ (sauf sur les bords mais comme k sera très petit ça n'influe pas trop).
+Enfin
+$$
+r = \frac{[y|N^c]}{[y|N^{(t-1)}]} = (1-\pi)^{2(N^c-N^{(t-1)})}
+$$
 
 ```{r}
 alpha <- 1
 beta <- 3
+
+indicatrice <- function(x, a, b){
+  return(ifelse(x >= a & x <= b, 1,0))
+}
+
 MCMC <- function(c1, c20, c21, k, T, N = 800, p = 0.5){
   # Condition initiale
   taux <- 0
@@ -260,8 +278,8 @@ MCMC <- function(c1, c20, c21, k, T, N = 800, p = 0.5){
   for(i in 1:(T-1)){
     # Metropolis-Hastings
     Ninter <- N[i]
-    Ncandidat <- (runif(1, max(Ninter-k, max(c1, c20 + c21)), Ninter+k+1)) # simulation sous une unif(N-k, N+k) discrète
-    r <- (1-p)^(2*(Ncandidat-Ninter)) # calcul du ratio de MH
+    Ncandidat <- floor(runif(1, Ninter-k, Ninter+k+1))
+    r <- (1-p)^(2*(Ncandidat-Ninter))*indicatrice(Ncandidat, c1 + c20, 2000)
     U <- runif(1)
     if(U < min(1, r)){
       N <- c(N, Ncandidat)
@@ -274,11 +292,10 @@ MCMC <- function(c1, c20, c21, k, T, N = 800, p = 0.5){
     p <- c(p, rbeta(1, c1 + c20 + c21 + alpha, 2*N[i+1]-c1-c21-c20+beta))
   }
   # return(list(N = N, pi = p, taux = taux/T))
-  return(list(mcmc = mcmc(matrix(c(p,N),nrow=T,ncol=2,byrow=FALSE)), taux = taux /T))
+  return(list(chain = cbind(p,N),mcmc = mcmc(matrix(c(p,N),nrow=T,ncol=2,byrow=FALSE)), taux = taux /T))
 }
-test=MCMC(125, 134, 21, 2, 10000, 1000, 0.15)
-test$mcmc
-plot(test$mcmc)
+#test=MCMC(125, 134, 21, 2, 10000, 1000, 0.1)
+#plot(mcmc(matrix(test$chain[2001:10000,], nrow=8000, ncol = 2, byrow = F)))
 ```
 
 
@@ -296,13 +313,14 @@ c20 <- 134
 c21 <- 21
 taux <- c()
 for(k in K){
-  paste('cool')
   res <- MCMC(c1, c20, c21, k, 10000)
   taux <- c(taux, res['taux'])
 }
 
 plot(K, taux, xlab = 'Paramètre k', ylab = 'taux d\'acceptation')
 ```
+
+Directement pour k=11 on passe sous la barre des 40% d'acceptation. On va donc faire varier k entre 1 et 10.
 
 ```{r}
 K <- seq(1, 10)
@@ -318,6 +336,8 @@ for(k in K){
 
 plot(K, taux, xlab = 'Paramètre k', ylab = 'taux d\'acceptation')
 ```
+
+Ainsi comme on cherche un taux d'acceptation proche de 40% mais qu'on cherche à visiter l'espace des paramètres assez rapidement on va décider de chosisir $k=2$.
 
 ---------------
 
@@ -340,6 +360,20 @@ plot(res1$mcmc)
 plot(res2$mcmc)
 ```
 
+On remarque la présence d'un temps de chauffe avant de converger vers la loi stationnaire. On ne parcourt pas tous le domaine possible. En effet, on ne va pas explorer les valeurs de N plus grande que $N_0$. On a aucun indice de non convergence car les chaine semblent converger vers la même loi stationnaire. On va calculer la statistique de Gelman-Rubin qui va nous fournir une information sur la stationnarité des chaines.
+
+
+```{r}
+list_chain_N = mcmc.list(res0$mcmc, res1$mcmc, res2$mcmc) 
+
+gelman.diag(list_chain_N)
+gelman.plot(list_chain_N)
+
+```
+
+D'après ce critère, on a aucun problème de convergence après un certain temps. On remarque la présence d'un temps de chauffe. Pour remédier à ce problème il faudrait tronquer les chaines en enlevant les premières valeurs.
+
+En supprimant 5000 itérations ( ce que l'on peut se permettre), on s'assure d'attendre la convergence de la chaine de markov. 
 
 ---------------
 
@@ -347,11 +381,46 @@ plot(res2$mcmc)
 
 Analyser les autocorrélations intra-chaînes. Qu’en pensez-vous ?
 
+```{r}
+autocorr.diag(res0$mcmc)
+autocorr.diag(res1$mcmc)
+autocorr.diag(res2$mcmc)
+```
+
+Dans les 3 cas les chaînes sont très intra-corrélés. On a un problème de slow-mixing. Il faut donc énormément d'itérations supplémentaires pour espérer obtenir une bonne approximation de la loi a posteriori. Cette observation concorde avec la présence du temps-de-chauffe. On va pouvoir baisser ce nombre d'itérations en supprimant le temps-de-chauffe.
+
 ---------------
 
 ### Question 14
 
-Supprimer les X premières itérations correspondant à votre temps-de- chauffe "estimé" de l’algorithme afin de constituer votre échantillon à posteriori. Calculer la taille d’échantillon effective (ESS) de l’échantillon à posteriori constitué. Qu’en pensez-vous ? Si l’ESS vous semble trop petit, refaites tourner l’algorithme en augmentant le nombre d’itérations G jusqu’à obtenir un ESS "satisfaisant" pour bien estimer N et $\piπ$.
+Supprimer les X premières itérations correspondant à votre temps-de- chauffe "estimé" de l’algorithme afin de constituer votre échantillon à posteriori. Calculer la taille d’échantillon effective (ESS) de l’échantillon à posteriori constitué. Qu’en pensez-vous ? Si l’ESS vous semble trop petit, refaites tourner l’algorithme en augmentant le nombre d’itérations G jusqu’à obtenir un ESS "satisfaisant" pour bien estimer N et $\pi$.
+
+```{r}
+# temps de chauffe estimé
+nburnin = 5000
+
+N0 <- 1000
+p0 <- 0.5
+G <- 20000
+res <- MCMC(125, 134, 21, 2, G, N0, p0)
+
+mcmcchains <- mcmc(matrix(res$chain[(nburnin + 1):G,], nrow = G-nburnin , ncol = 2, byrow = F))
+
+effectiveSize(mcmcchains)
+plot(mcmcchains)
+```
+
+On observe que l'ESS pour la variable $\pi$ est égale à 15000 pour G = 20000. Il faut donc augmenter G car on n'a pas trouvé d'ESS. On augmente à taton. Pour G = 60000 on obtient:
+
+```{r}
+G <- 50000
+res <- MCMC(125, 134, 21, 2, G, N0, p0)
+
+mcmcchains <- mcmc(matrix(res$chain[(nburnin + 1):G,], nrow = G-nburnin , ncol = 2, byrow = F))
+
+effectiveSize(mcmcchains)
+plot(mcmcchains)
+```
 
 ---------------
 
@@ -361,3 +430,10 @@ Donner les statistiques a posteriori et représenter les lois a posteriori appro
 
 ---------------
 
+```{r}
+plot(mcmcchains)
+```
+
+Le $\pi$ obtenu correspond aux resultats obtenus lors des questions 4 à 6. Quant à N il suit une sorte de loi exponentielle discrète commençant à C1 + C20 qui correspond au nombre de poisson différent pêché lors des deux pêches.
+
+C'est plutôt bizarre comme résultat mais on est dans une situation où la loi ç priori influence beaucoup la loi a posteriori. En effet la vraisemblance a tendance à faire décroitre infiniment la valeur de notre N et la loi a posteriori va donner le support sur lequel N peut exister. 
